@@ -101,16 +101,25 @@ def check_session_text():
     state = doc["state"]
     has_cf = any(c.get("name") == "cf_clearance" for c in state.get("cookies", []))
     r = make_session(state).get("https://moogold.com/account/", timeout=20)
-    t = r.text.lower()
+    raw = r.text
+    t = raw.lower()
+    login_form = "woocommerce-login-nonce" in raw
+    overview = "account overview" in t
+    m = re.search(r"<title>(.*?)</title>", raw, re.S)
+    title = m.group(1).strip() if m else "?"
     if "just a moment" in t:
         status = "Cloudflare challenge ပေါ်နေတယ် (Render ကနေ session ကို ပယ်ချခံရတယ်)"
-    elif ("logout" in t or "log out" in t) and 'type="password"' not in t:
+    elif overview and not login_form:
         status = "Login ဝင်ထားဆဲ ✅ (session အလုပ်လုပ်တယ်)"
+    elif login_form:
+        status = "Login မဝင်ထားဘူး (login form ပေါ်နေတယ်၊ session ကုန် ဒါမှမဟုတ် Render IP/browser မကိုက်)"
     else:
-        status = "Login မဝင်ထားဘူး (session ကုန်၊ ဒါမှမဟုတ် Render IP/browser မကိုက်)"
+        status = "မသေချာဘူး (title ကို ကြည့်ပါ)"
     return (f"HTTP status: {r.status_code}\n"
+            f"Title: {title}\n"
             f"Session သိမ်းထားတဲ့အချိန်: {doc.get('updated')}\n"
             f"cf_clearance cookie: {'ပါတယ်' if has_cf else 'မပါဘူး'}\n"
+            f"Login form: {'ပါတယ်' if login_form else 'မပါဘူး'} | Account overview: {'ပါတယ်' if overview else 'မပါဘူး'}\n"
             f"ရလဒ်: {status}")
 
 
