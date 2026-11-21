@@ -1,0 +1,6 @@
+moogold_session.json
+cookies.json
+chrome_profile/
+*.html
+.env
+__pycache__/
