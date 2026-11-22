@@ -71,6 +71,9 @@ def read_fields(s):
             found.append((eid, label))
     user_f = next((e for e, l in found if "user" in l.lower()), None)
     server_f = next((e for e, l in found if "server" in l.lower()), None)
+    # ဆိုက်ရဲ့ form က input နာမည်ကို "wcpa-" မပါဘဲ ပို့တယ် (text-xxxx)
+    user_f = user_f[len("wcpa-"):] if user_f and user_f.startswith("wcpa-") else user_f
+    server_f = server_f[len("wcpa-"):] if server_f and server_f.startswith("wcpa-") else server_f
     if not (product_id and user_f and server_f):
         raise BuyError("User ID / Server ID field နာမည်တွေ ရှာမတွေ့ဘူး (ဆိုက်ပုံစံ ပြောင်းသွားနိုင်)")
     return product_id, user_f, server_f
@@ -121,6 +124,7 @@ def add_to_cart(s, product_id, variation_id, amount_name, user_f, server_f, user
         "variation_id": str(variation_id),
         "attribute_amount": amount_name,
         "quantity": "1",
+        "confirm_add_to_cart": "yes",
         user_f: user_id,
         server_f: server_id,
     })
