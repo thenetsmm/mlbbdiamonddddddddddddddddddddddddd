@@ -10,6 +10,7 @@
 """
 import html as H
 import json
+import os
 import re
 from decimal import Decimal, InvalidOperation
 
@@ -25,6 +26,15 @@ ORDERS_URL = f"{BASE}/account/orders/"
 ORDER_AJAX_URL = f"{BASE}/?wc-ajax=checkout"
 CART_ROW_SEL = "tr.cart_item, .cart_item, .woocommerce-cart-form__cart-item"
 REMOVE_SEL = "a.remove, a[href*='remove_item']"
+
+
+# ဘရောက်ဇာ form ကနေ တိုက်ရိုက်ဖမ်းထားတဲ့ တကယ့် input နာမည်များ (Render env နဲ့ ပြောင်းလို့ရ)
+USER_FIELD = os.environ.get("MG_USER_FIELD", "text-5f6f144f8ffee")
+SERVER_FIELD = os.environ.get("MG_SERVER_FIELD", "text-1601115253775")
+
+
+def log(*a):
+    print("[moogold]", *a, flush=True)
 
 
 class BuyError(Exception):
@@ -69,13 +79,12 @@ def read_fields(s):
     for eid, label in re.findall(r'"elementId":"(wcpa-[\w-]+)","label":"([^"]*)"', page):
         if (eid, label) not in found:
             found.append((eid, label))
-    user_f = next((e for e, l in found if "user" in l.lower()), None)
-    server_f = next((e for e, l in found if "server" in l.lower()), None)
-    # ဆိုက်ရဲ့ form က input နာမည်ကို "wcpa-" မပါဘဲ ပို့တယ် (text-xxxx)
-    user_f = user_f[len("wcpa-"):] if user_f and user_f.startswith("wcpa-") else user_f
-    server_f = server_f[len("wcpa-"):] if server_f and server_f.startswith("wcpa-") else server_f
-    if not (product_id and user_f and server_f):
-        raise BuyError("User ID / Server ID field နာမည်တွေ ရှာမတွေ့ဘူး (ဆိုက်ပုံစံ ပြောင်းသွားနိုင်)")
+    auto_user = next((e for e, l in found if "user" in l.lower()), None)
+    auto_server = next((e for e, l in found if "server" in l.lower()), None)
+    log("page fields:", found, "| auto:", auto_user, auto_server, "| using:", USER_FIELD, SERVER_FIELD)
+    user_f, server_f = USER_FIELD, SERVER_FIELD
+    if not product_id:
+        raise BuyError("Product id ရှာမတွေ့ဘူး (ဆိုက်ပုံစံ ပြောင်းသွားနိုင်)")
     return product_id, user_f, server_f
 
 
@@ -132,9 +141,11 @@ def add_to_cart(s, product_id, variation_id, amount_name, user_f, server_f, user
     files = {k: (None, str(v)) for k, v in data.items()}
     r = s.post(PRODUCT_URL, files=files, headers={"Referer": PRODUCT_URL, "Origin": BASE}, timeout=30)
     errs = [e.get_text(" ", strip=True) for e in _soup(r.text).select(".woocommerce-error")]
+    sent = sorted(k for k in data if k.startswith("text-") or k in ("confirm_add_to_cart", "variation_id", "attribute_amount"))
+    log("add_to_cart HTTP", r.status_code, "| sent:", sent, "| errors:", errs,
+        "| added-msg:", "has been added to your cart" in r.text)
     if errs:
-        extra = " | ပို့ခဲ့တဲ့ field: " + ", ".join(sorted(k for k in data if "wcpa" in k.lower() or k in (user_f, server_f)))
-        raise BuyError("Cart ထဲ မထည့်နိုင်ဘူး: " + errs[0][:200] + extra[:300])
+        raise BuyError("Cart ထဲ မထည့်နိုင်ဘူး: " + errs[0][:200] + " | ပို့ခဲ့တဲ့ field: " + ", ".join(sent))
 
 
 def verify_cart(s, amount_name, user_id, server_id):
