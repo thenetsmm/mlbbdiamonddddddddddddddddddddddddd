@@ -46,6 +46,14 @@ def _dec(text):
         return None
 
 
+def force_usd(s):
+    """MooGold က currency ကို ဆိုင်ရာနိုင်ငံအလိုက် ပြောင်းတတ်လို့ (aelia) USD ကို အတင်းသတ်မှတ်မယ်"""
+    for c in list(s.cookies):
+        if c.name == "aelia_cs_selected_currency":
+            s.cookies.clear(c.domain, c.path, c.name)
+    s.cookies.set("aelia_cs_selected_currency", "USD", domain="moogold.com", path="/")
+
+
 # ---------- product page ----------
 def read_fields(s):
     """Product id နဲ့ User ID / Server ID field နာမည်တွေကို page ကနေ ဖတ်မယ်"""
@@ -89,8 +97,25 @@ def clear_cart(s):
     return cart_state(s)[1]
 
 
+def _form_hidden(s):
+    """Product form ထဲက hidden/ပုံမှန် input အားလုံး (nonce, wcpa key စတာတွေ ပါမယ်)"""
+    r = s.get(PRODUCT_URL, timeout=20)
+    form = _soup(r.text).select_one("form.variations_form, form.cart")
+    out = {}
+    if not form:
+        return out
+    for el in form.find_all(["input", "select", "textarea"]):
+        name = el.get("name")
+        typ = (el.get("type") or el.name).lower()
+        if not name or typ in ("submit", "button", "image", "file", "radio", "checkbox"):
+            continue
+        out[name] = el.get("value", "") if el.name != "textarea" else el.get_text()
+    return out
+
+
 def add_to_cart(s, product_id, variation_id, amount_name, user_f, server_f, user_id, server_id):
-    data = {
+    data = _form_hidden(s)
+    data.update({
         "add-to-cart": product_id,
         "product_id": product_id,
         "variation_id": str(variation_id),
@@ -98,11 +123,14 @@ def add_to_cart(s, product_id, variation_id, amount_name, user_f, server_f, user
         "quantity": "1",
         user_f: user_id,
         server_f: server_id,
-    }
-    r = s.post(PRODUCT_URL, data=data, headers={"Referer": PRODUCT_URL}, timeout=30)
+    })
+    # ဆိုက်ရဲ့ form က multipart/form-data နဲ့ ပို့တာမို့ ထိုနည်းတူ ပို့မယ်
+    files = {k: (None, str(v)) for k, v in data.items()}
+    r = s.post(PRODUCT_URL, files=files, headers={"Referer": PRODUCT_URL, "Origin": BASE}, timeout=30)
     errs = [e.get_text(" ", strip=True) for e in _soup(r.text).select(".woocommerce-error")]
     if errs:
-        raise BuyError("Cart ထဲ မထည့်နိုင်ဘူး: " + errs[0][:200])
+        extra = " | ပို့ခဲ့တဲ့ field: " + ", ".join(sorted(k for k in data if "wcpa" in k.lower() or k in (user_f, server_f)))
+        raise BuyError("Cart ထဲ မထည့်နိုင်ဘူး: " + errs[0][:200] + extra[:300])
 
 
 def verify_cart(s, amount_name, user_id, server_id):
@@ -215,6 +243,7 @@ def run_purchase(s, pkg, user_id, server_id, max_usd, buy_enabled):
     price = Decimal(str(pkg["price"]))
     if price > max_usd:
         raise BuyError(f"ဈေး ${price} က ကန့်သတ်ပမာဏ ${max_usd} ထက် များနေတယ်")
+    force_usd(s)
     product_id, user_f, server_f = read_fields(s)
     _, n, _ = cart_state(s)
     if n != 0:
